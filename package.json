@@ -1,0 +1,16 @@
+{
+  "name": "skill-organizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "skill-organizer": "bin/skill-organizer.js"
+  },
+  "scripts": {
+    "lint": "node --check bin/skill-organizer.js && node --check src/cli.js && node --check src/providers.js && node --check src/sync.js && node --check test/sync.test.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
