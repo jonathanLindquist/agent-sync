@@ -2,6 +2,7 @@ import { getHomeDir, loadProviders, providerWithResolvedPath, sourceSkillsDir } 
 import { syncProviders } from "./sync.js";
 
 const ALL_PROVIDERS_FLAG = "--all-providers";
+const SKILL_FLAG = "--skill";
 const ACTION_DISPLAY_ORDER = ["imported", "linked", "replaced", "removed", "skipped"];
 const BOLD_ACTION_TYPES = new Set(["imported", "linked", "replaced"]);
 
@@ -40,6 +41,7 @@ export async function runCli(argv, { env = process.env, stdout = process.stdout,
     sourceDir: sourceSkillsDir(homeDir),
     providers: selectedProviders,
     dryRun: parsed.dryRun,
+    skillNames: parsed.skillNames,
   });
 
   for (const result of results) {
@@ -51,12 +53,15 @@ export async function runCli(argv, { env = process.env, stdout = process.stdout,
 
 function parseArgs(argv, providers) {
   const selectedProviderIds = [];
+  const skillNames = [];
   const errors = [];
   let allProviders = false;
   let dryRun = false;
   let help = false;
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
     if (arg === "--help" || arg === "-h") {
       help = true;
       continue;
@@ -69,6 +74,24 @@ function parseArgs(argv, providers) {
 
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+
+    if (arg === SKILL_FLAG) {
+      const skillName = argv[index + 1];
+
+      if (!skillName || skillName.startsWith("--")) {
+        errors.push(`${SKILL_FLAG} requires a skill name`);
+        continue;
+      }
+
+      addSkillName(skillName, { errors, skillNames });
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith(`${SKILL_FLAG}=`)) {
+      addSkillName(arg.slice(`${SKILL_FLAG}=`.length), { errors, skillNames });
       continue;
     }
 
@@ -88,7 +111,24 @@ function parseArgs(argv, providers) {
     errors,
     help,
     selectedProviderIds: [...new Set(selectedProviderIds)],
+    skillNames: [...new Set(skillNames)],
   };
+}
+
+function addSkillName(value, { errors, skillNames }) {
+  const skillName = value.trim();
+
+  if (!skillName) {
+    errors.push(`${SKILL_FLAG} requires a skill name`);
+    return;
+  }
+
+  if (skillName === "." || skillName === ".." || skillName.includes("/") || skillName.includes("\\")) {
+    errors.push(`Invalid skill name for ${SKILL_FLAG}: ${value}`);
+    return;
+  }
+
+  skillNames.push(skillName);
 }
 
 function writeProviderSummary(stdout, result) {
@@ -184,6 +224,7 @@ Provider flags:
 ${providerFlags}
 
 Options:
+  --skill <name>      sync only this skill name; can be repeated
   --dry-run            show the actions without changing files
   -h, --help           show this help
 

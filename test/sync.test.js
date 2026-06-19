@@ -128,6 +128,193 @@ test("--dry-run --all-providers reports actions without changing providers", asy
   await assert.rejects(fs.stat(path.join(homeDir, ".custom-agent")), { code: "ENOENT" });
 });
 
+test("--skill limits sync to the requested source skill", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir);
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+
+  await writeSkill(sourceDir, "qa", "unrequested source skill");
+  await writeSkill(sourceDir, "tdd", "requested source skill");
+
+  const exitCode = await runCli(["--claude-code", "--skill", "tdd"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 0 imported, 1 linked, 0 replaced, 0 removed, 0 skipped/);
+  assert.match(output.text, /linked.*tdd/);
+  assert.doesNotMatch(output.text, /qa/);
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(sourceDir, "tdd"));
+  await assert.rejects(fs.stat(path.join(destinationDir, "qa")), { code: "ENOENT" });
+});
+
+test("--skill imports only the requested destination-only skill", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir);
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+
+  await writeSkill(destinationDir, "qa", "requested destination skill");
+  await writeSkill(destinationDir, "tdd", "unrequested destination skill");
+
+  const exitCode = await runCli(["--skill=qa", "--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 1 imported, 0 linked, 0 replaced, 0 removed, 0 skipped/);
+  assert.match(output.text, /imported.*qa/);
+  assert.doesNotMatch(output.text, /tdd/);
+  assert.equal(await fs.readFile(path.join(sourceDir, "qa", "SKILL.md"), "utf8"), "requested destination skill\n");
+  assert.equal(await fs.readlink(path.join(destinationDir, "qa")), path.join(sourceDir, "qa"));
+  assert.equal(await fs.readFile(path.join(destinationDir, "tdd", "SKILL.md"), "utf8"), "unrequested destination skill\n");
+  await assert.rejects(fs.stat(path.join(sourceDir, "tdd")), { code: "ENOENT" });
+});
+
+test("--skill replaces only the requested destination clash", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir);
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+
+  await writeSkill(sourceDir, "qa", "unrequested source skill");
+  await writeSkill(destinationDir, "qa", "unrequested destination skill");
+  await writeSkill(sourceDir, "tdd", "requested source skill");
+  await writeSkill(destinationDir, "tdd", "requested destination skill");
+
+  const exitCode = await runCli(["--claude-code", "--skill", "tdd"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 0 imported, 0 linked, 1 replaced, 0 removed, 0 skipped/);
+  assert.match(output.text, /replaced.*tdd/);
+  assert.doesNotMatch(output.text, /qa/);
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(sourceDir, "tdd"));
+  assert.equal(await fs.readFile(path.join(destinationDir, "qa", "SKILL.md"), "utf8"), "unrequested destination skill\n");
+});
+
+test("repeated --skill syncs a deduplicated explicit set", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir);
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+
+  await writeSkill(sourceDir, "qa", "requested source skill");
+  await writeSkill(sourceDir, "tdd", "requested source skill");
+  await writeSkill(sourceDir, "zoom-out", "unrequested source skill");
+
+  const exitCode = await runCli(["--claude-code", "--skill", "qa", "--skill", "tdd", "--skill=tdd"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 0 imported, 2 linked, 0 replaced, 0 removed, 0 skipped/);
+  assert.match(output.text, /linked.*qa/);
+  assert.match(output.text, /linked.*tdd/);
+  assert.doesNotMatch(output.text, /zoom-out/);
+  assert.equal(await fs.readlink(path.join(destinationDir, "qa")), path.join(sourceDir, "qa"));
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(sourceDir, "tdd"));
+  await assert.rejects(fs.stat(path.join(destinationDir, "zoom-out")), { code: "ENOENT" });
+});
+
+test("--all-providers combines with --skill", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir, twoProviders());
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+
+  await writeSkill(sourceDir, "qa", "unrequested source skill");
+  await writeSkill(sourceDir, "tdd", "requested source skill");
+
+  const exitCode = await runCli(["--all-providers", "--skill", "tdd"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(countMatches(output.text, "synced: 0 imported, 1 linked, 0 replaced, 0 removed, 0 skipped"), 2);
+  assert.match(output.text, /Claude Code synced/);
+  assert.match(output.text, /Custom Agent synced/);
+  assert.doesNotMatch(output.text, /qa/);
+  assert.equal(await fs.readlink(path.join(homeDir, ".claude", "skills", "tdd")), path.join(sourceDir, "tdd"));
+  assert.equal(await fs.readlink(path.join(homeDir, ".custom-agent", "skills", "tdd")), path.join(sourceDir, "tdd"));
+  await assert.rejects(fs.stat(path.join(homeDir, ".claude", "skills", "qa")), { code: "ENOENT" });
+  await assert.rejects(fs.stat(path.join(homeDir, ".custom-agent", "skills", "qa")), { code: "ENOENT" });
+});
+
+test("--skill reports a skipped action when the requested skill does not exist", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const providerConfigPath = await writeProviderConfig(homeDir);
+
+  const exitCode = await runCli(["--dry-run", "--skill", "missing", "--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code dry run: 0 imported, 0 linked, 0 replaced, 0 removed, 1 skipped/);
+  assert.match(output.text, /skipped missing: skill not found in source or destination/);
+  await assert.rejects(fs.stat(path.join(homeDir, ".agents")), { code: "ENOENT" });
+  await assert.rejects(fs.stat(path.join(homeDir, ".claude")), { code: "ENOENT" });
+});
+
+test("--skill rejects path-like skill names", async (t) => {
+  const homeDir = await tempHome(t);
+  const stderr = createWritable();
+
+  const exitCode = await runCli(["--skill=../tdd", "--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath: await writeProviderConfig(homeDir),
+    stdout: createWritable(),
+    stderr,
+  });
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /Invalid skill name for --skill: \.\.\/tdd/);
+  await assert.rejects(fs.stat(path.join(homeDir, ".agents")), { code: "ENOENT" });
+  await assert.rejects(fs.stat(path.join(homeDir, ".claude")), { code: "ENOENT" });
+});
+
+test("--skill requires a skill name", async (t) => {
+  const homeDir = await tempHome(t);
+  const stderr = createWritable();
+
+  const exitCode = await runCli(["--skill", "--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath: await writeProviderConfig(homeDir),
+    stdout: createWritable(),
+    stderr,
+  });
+
+  assert.equal(exitCode, 1);
+  assert.match(stderr.text, /--skill requires a skill name/);
+  await assert.rejects(fs.stat(path.join(homeDir, ".agents")), { code: "ENOENT" });
+  await assert.rejects(fs.stat(path.join(homeDir, ".claude")), { code: "ENOENT" });
+});
+
 test("dry-run groups action details by type and skill name with spacing and bold labels", async (t) => {
   await assertCliActionOrder(t, ["--dry-run", "--claude-code"], "Claude Code dry run");
 });

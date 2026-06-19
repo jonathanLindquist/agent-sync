@@ -1,31 +1,37 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-export async function syncProviders({ sourceDir, providers, dryRun = false }) {
+export async function syncProviders({ sourceDir, providers, dryRun = false, skillNames = [] }) {
   const results = [];
 
   for (const provider of providers) {
-    results.push(await syncProvider({ sourceDir, provider, dryRun }));
+    results.push(await syncProvider({ sourceDir, provider, dryRun, skillNames }));
   }
 
   return results;
 }
 
-export async function syncProvider({ sourceDir, provider, dryRun = false }) {
+export async function syncProvider({ sourceDir, provider, dryRun = false, skillNames = [] }) {
   const actions = [];
   const destinationDir = provider.skillsDir;
+  const selectedSkillNames = [...new Set(skillNames)];
+  const selectedSkillNameSet = selectedSkillNames.length > 0 ? new Set(selectedSkillNames) : null;
 
   await ensureDirectory(sourceDir, { dryRun });
   await ensureDirectory(destinationDir, { dryRun });
 
   const sourceEntries = await readEntries(sourceDir);
   const destinationEntries = await readEntries(destinationDir);
-  const sourceNames = new Set(sourceEntries.skills.map((entry) => entry.name));
+  const sourceSkills = filterSkillEntries(sourceEntries.skills, selectedSkillNameSet);
+  const destinationSkills = filterSkillEntries(destinationEntries.skills, selectedSkillNameSet);
+  const allSourceSkillNames = new Set(sourceEntries.skills.map((entry) => entry.name));
+  const allDestinationSkillNames = new Set(destinationEntries.skills.map((entry) => entry.name));
+  const sourceNames = new Set(sourceSkills.map((entry) => entry.name));
   const sourceAllNames = new Set(sourceEntries.allNames);
   const destinationNames = new Set(destinationEntries.allNames);
   const importedNames = new Set();
 
-  for (const destinationEntry of destinationEntries.skills) {
+  for (const destinationEntry of destinationSkills) {
     if (sourceNames.has(destinationEntry.name)) {
       continue;
     }
@@ -107,6 +113,16 @@ export async function syncProvider({ sourceDir, provider, dryRun = false }) {
     });
   }
 
+  for (const skillName of selectedSkillNames) {
+    if (!allSourceSkillNames.has(skillName) && !allDestinationSkillNames.has(skillName)) {
+      actions.push({
+        type: "skipped",
+        skill: skillName,
+        reason: "skill not found in source or destination",
+      });
+    }
+  }
+
   return {
     provider,
     sourceDir,
@@ -114,6 +130,14 @@ export async function syncProvider({ sourceDir, provider, dryRun = false }) {
     dryRun,
     actions,
   };
+}
+
+function filterSkillEntries(entries, selectedSkillNameSet) {
+  if (!selectedSkillNameSet) {
+    return entries;
+  }
+
+  return entries.filter((entry) => selectedSkillNameSet.has(entry.name));
 }
 
 async function ensureDirectory(directoryPath, { dryRun }) {

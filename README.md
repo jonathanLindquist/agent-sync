@@ -6,6 +6,7 @@ The default command intentionally does nothing. You must pass a provider flag fo
 
 ```bash
 skill-organizer --claude-code
+skill-organizer --claude-code --skill tdd
 skill-organizer --all-providers
 ```
 
@@ -33,9 +34,12 @@ npm test
 npm run lint
 node bin/skill-organizer.js --help
 node bin/skill-organizer.js --dry-run --claude-code
+node bin/skill-organizer.js --dry-run --claude-code --skill tdd
 node bin/skill-organizer.js --claude-code
 node bin/skill-organizer.js --all-providers
 ```
+
+Use `--skill <name>` to limit a sync to one skill directory name. The option can be repeated when you need a small explicit set, and it works with provider flags or `--all-providers`.
 
 ## Adding Providers
 
