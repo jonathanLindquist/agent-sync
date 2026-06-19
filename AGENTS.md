@@ -16,7 +16,7 @@ Issues and implementation tickets live in the Obsidian Kanban board at `~/obsidi
 
 ### Triage labels
 
-Use the default five-role triage vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+Use the default five-role triage vocabulary with the Kanban color mapping in `docs/agents/triage-labels.md`: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

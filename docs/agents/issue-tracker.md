@@ -29,6 +29,7 @@ Each ticket should include:
 - `## Description`
 - relevant tags such as `#skill-organizer`, `#cli`, `#sync`, `#tests`, or `#2026`
 - `## Implementation Data`
+- a triage label line using the color markup from `docs/agents/triage-labels.md`
 - `## TODO Checklist`
 - `## Definition of Done`
 
