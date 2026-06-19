@@ -2,6 +2,8 @@ import { getHomeDir, loadProviders, providerWithResolvedPath, sourceSkillsDir } 
 import { syncProviders } from "./sync.js";
 
 const ALL_PROVIDERS_FLAG = "--all-providers";
+const ACTION_DISPLAY_ORDER = ["imported", "linked", "replaced", "removed", "skipped"];
+const BOLD_ACTION_TYPES = new Set(["imported", "linked", "replaced"]);
 
 export async function runCli(argv, { env = process.env, stdout = process.stdout, stderr = process.stderr, providerConfigPath } = {}) {
   const providers = await loadProviders(providerConfigPath);
@@ -97,19 +99,27 @@ function writeProviderSummary(stdout, result) {
     `${result.provider.label} ${mode}: ${counts.imported} imported, ${counts.linked} linked, ${counts.replaced} replaced, ${counts.removed} removed, ${counts.skipped} skipped.\n`,
   );
 
-  for (const action of result.actions) {
+  let previousActionType;
+
+  for (const action of sortActionsForDisplay(result.actions)) {
+    if (previousActionType && previousActionType !== action.type) {
+      stdout.write("\n");
+    }
+
+    previousActionType = action.type;
+
     if (action.type === "imported") {
-      stdout.write(`  imported ${action.skill}: ${action.from} -> ${action.to}\n`);
+      stdout.write(`  ${formatActionType(action.type)} ${action.skill}: ${action.from} -> ${action.to}\n`);
       continue;
     }
 
     if (action.type === "linked") {
-      stdout.write(`  linked ${action.skill}: ${action.to} -> ${action.from}\n`);
+      stdout.write(`  ${formatActionType(action.type)} ${action.skill}: ${action.to} -> ${action.from}\n`);
       continue;
     }
 
     if (action.type === "replaced") {
-      stdout.write(`  replaced ${action.skill}: ${action.to} -> ${action.from}\n`);
+      stdout.write(`  ${formatActionType(action.type)} ${action.skill}: ${action.to} -> ${action.from}\n`);
       continue;
     }
 
@@ -122,6 +132,32 @@ function writeProviderSummary(stdout, result) {
       stdout.write(`  skipped ${action.skill}: ${action.reason}\n`);
     }
   }
+}
+
+function formatActionType(type) {
+  if (!BOLD_ACTION_TYPES.has(type)) {
+    return type;
+  }
+
+  return `\x1b[1m${type}\x1b[22m`;
+}
+
+function sortActionsForDisplay(actions) {
+  return [...actions].sort((left, right) => {
+    const typeComparison = actionDisplayRank(left.type) - actionDisplayRank(right.type);
+
+    if (typeComparison !== 0) {
+      return typeComparison;
+    }
+
+    return left.skill.localeCompare(right.skill);
+  });
+}
+
+function actionDisplayRank(type) {
+  const index = ACTION_DISPLAY_ORDER.indexOf(type);
+
+  return index === -1 ? ACTION_DISPLAY_ORDER.length : index;
 }
 
 function countActions(actions) {

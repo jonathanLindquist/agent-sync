@@ -128,6 +128,14 @@ test("--dry-run --all-providers reports actions without changing providers", asy
   await assert.rejects(fs.stat(path.join(homeDir, ".custom-agent")), { code: "ENOENT" });
 });
 
+test("dry-run groups action details by type and skill name with spacing and bold labels", async (t) => {
+  await assertCliActionOrder(t, ["--dry-run", "--claude-code"], "Claude Code dry run");
+});
+
+test("sync groups action details by type and skill name with spacing and bold labels", async (t) => {
+  await assertCliActionOrder(t, ["--claude-code"], "Claude Code synced");
+});
+
 test("links source skills that do not exist in the destination", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");
@@ -441,4 +449,55 @@ function createWritable() {
 
 function countMatches(text, pattern) {
   return text.split(pattern).length - 1;
+}
+
+async function assertCliActionOrder(t, argv, summaryText) {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+  const providerConfigPath = await writeProviderConfig(homeDir);
+
+  await writeSkill(destinationDir, "a-imported", "destination-only skill");
+  await writeSkill(destinationDir, "z-imported", "destination-only skill");
+  await writeSkill(sourceDir, "a-replaced", "source skill");
+  await writeSkill(destinationDir, "a-replaced", "destination skill");
+  await writeSkill(sourceDir, "b-linked", "source skill");
+  await writeSkill(sourceDir, "c-replaced", "source skill");
+  await writeSkill(destinationDir, "c-replaced", "destination skill");
+  await writeSkill(sourceDir, "d-linked", "source skill");
+
+  const exitCode = await runCli(argv, {
+    env: { HOME: homeDir },
+    providerConfigPath,
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, new RegExp(summaryText));
+  assert.match(output.text, /\x1b\[1mimported\x1b\[22m a-imported/);
+  assert.match(output.text, /\x1b\[1mlinked\x1b\[22m b-linked/);
+  assert.match(output.text, /\x1b\[1mreplaced\x1b\[22m a-replaced/);
+  assert.deepEqual(
+    output.text
+      .trimEnd()
+      .split("\n")
+      .slice(1)
+      .map((line) => (line === "" ? "" : stripAnsi(line).trim().split(":")[0])),
+    [
+      "imported a-imported",
+      "imported z-imported",
+      "",
+      "linked b-linked",
+      "linked d-linked",
+      "",
+      "replaced a-replaced",
+      "replaced c-replaced",
+    ],
+  );
+}
+
+function stripAnsi(text) {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
