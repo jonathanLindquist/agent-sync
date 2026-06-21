@@ -430,6 +430,69 @@ test("links source skills that do not exist in the destination", async (t) => {
   assert.equal(await fs.readlink(linkPath), path.join(sourceDir, "tdd"));
 });
 
+test("links source symlinked skills directly to their targets", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const skillRepoDir = path.join(workspace, "skill-repos");
+
+  await writeSkill(skillRepoDir, "tdd", "repo skill");
+  await fs.mkdir(sourceDir, { recursive: true });
+  await fs.symlink(path.join(skillRepoDir, "tdd"), path.join(sourceDir, "tdd"), "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.type), ["linked"]);
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(skillRepoDir, "tdd"));
+  assert.equal(await fs.readFile(path.join(sourceDir, "tdd", "SKILL.md"), "utf8"), "repo skill\n");
+});
+
+test("replaces provider links to source symlinks with direct target links", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const skillRepoDir = path.join(workspace, "skill-repos");
+
+  await writeSkill(skillRepoDir, "tdd", "repo skill");
+  await fs.mkdir(sourceDir, { recursive: true });
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(path.join(skillRepoDir, "tdd"), path.join(sourceDir, "tdd"), "dir");
+  await fs.symlink(path.join(sourceDir, "tdd"), path.join(destinationDir, "tdd"), "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.type), ["replaced"]);
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(skillRepoDir, "tdd"));
+  assert.equal(await fs.readFile(path.join(skillRepoDir, "tdd", "SKILL.md"), "utf8"), "repo skill\n");
+});
+
+test("replaces provider links to old targets when source symlinks become folders", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const skillRepoDir = path.join(workspace, "skill-repos");
+
+  await writeSkill(sourceDir, "tdd", "source folder skill");
+  await writeSkill(skillRepoDir, "tdd", "old repo skill");
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(path.join(skillRepoDir, "tdd"), path.join(destinationDir, "tdd"), "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.type), ["replaced"]);
+  assert.equal(await fs.readlink(path.join(destinationDir, "tdd")), path.join(sourceDir, "tdd"));
+  assert.equal(await fs.readFile(path.join(sourceDir, "tdd", "SKILL.md"), "utf8"), "source folder skill\n");
+});
+
 test("replaces a destination skill clash with a source symlink", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");

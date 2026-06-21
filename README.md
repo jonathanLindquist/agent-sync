@@ -15,6 +15,7 @@ agent-sync --all-providers
 By default, selected provider flags sync only the default `skills` artifact:
 
 - source skills in `~/.agents/skills` are symlinked into the provider destination
+- source skills that are symlinks are linked into providers using the symlink target, which keeps skill repo links direct
 - existing destination entries with matching source skill names are replaced with symlinks to the source skill
 - destination-only skills are moved into `~/.agents/skills`, then symlinked back to the original provider location
 - destination-only skills that clash with non-skill source entries are removed from the provider destination
@@ -25,6 +26,13 @@ Claude Code is the first supported provider:
 ```text
 ~/.agents/skills/<skill-name>
 ~/.claude/skills/<skill-name> -> ~/.agents/skills/<skill-name>
+```
+
+If the source skill is already a symlink, provider links point directly at the underlying target:
+
+```text
+~/.agents/skills/<skill-name> -> ~/projects/skills/<skill-name>
+~/.claude/skills/<skill-name> -> ~/projects/skills/<skill-name>
 ```
 
 Non-default artifacts must be selected explicitly. The first non-skill artifact is `global-instructions`:

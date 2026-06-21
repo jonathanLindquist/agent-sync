@@ -51,6 +51,7 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
   const destinationEntries = await readEntries(destinationDir);
   const sourceSkills = filterSkillEntries(sourceEntries.skills, selectedSkillNameSet);
   const destinationSkills = filterSkillEntries(destinationEntries.skills, selectedSkillNameSet);
+  const sourceSkillsByName = new Map(sourceSkills.map((entry) => [entry.name, entry]));
   const allSourceSkillNames = new Set(sourceEntries.skills.map((entry) => entry.name));
   const allDestinationSkillNames = new Set(destinationEntries.skills.map((entry) => entry.name));
   const sourceNames = new Set(sourceSkills.map((entry) => entry.name));
@@ -103,9 +104,10 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
 
     const sourcePath = path.join(sourceDir, sourceName);
     const destinationPath = path.join(destinationDir, sourceName);
+    const linkSourcePath = await linkSourcePathForSkill(sourceSkillsByName.get(sourceName), sourcePath);
 
     if (destinationNames.has(sourceName)) {
-      if (await isSymlinkToSource(destinationPath, sourcePath)) {
+      if (await isSymlinkToSource(destinationPath, linkSourcePath)) {
         actions.push({
           type: "skipped",
           skill: sourceName,
@@ -116,26 +118,26 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
       }
 
       if (!dryRun) {
-        await replaceWithSourceLink(sourcePath, destinationPath);
+        await replaceWithSourceLink(linkSourcePath, destinationPath);
       }
 
       actions.push({
         type: "replaced",
         skill: sourceName,
-        from: sourcePath,
+        from: linkSourcePath,
         to: destinationPath,
       });
       continue;
     }
 
     if (!dryRun) {
-      await linkSkill(sourcePath, destinationPath);
+      await linkSkill(linkSourcePath, destinationPath);
     }
 
     actions.push({
       type: "linked",
       skill: sourceName,
-      from: sourcePath,
+      from: linkSourcePath,
       to: destinationPath,
     });
   }
@@ -291,6 +293,22 @@ async function readEntries(directoryPath) {
 
 function isSkillEntry(entry) {
   return entry.isDirectory() || entry.isSymbolicLink();
+}
+
+async function linkSourcePathForSkill(entry, sourcePath) {
+  if (!entry?.isSymbolicLink) {
+    return sourcePath;
+  }
+
+  const linkTarget = await fs.readlink(sourcePath);
+  const targetPath = path.resolve(path.dirname(sourcePath), linkTarget);
+  const targetStat = await fs.stat(targetPath);
+
+  if (!targetStat.isDirectory()) {
+    throw new Error(`Source symlink does not point to a skill directory: ${sourcePath}`);
+  }
+
+  return targetPath;
 }
 
 async function moveSkillToSource(entry, destinationPath, sourcePath) {
