@@ -34,8 +34,8 @@ Current project facts:
 
 ## Verification
 
-- [ ] `npm run lint`
-- [ ] `npm test`
+- [ ] `pnpm lint`
+- [ ] `pnpm test`
 - [ ] `node bin/agent-sync.js --help`
 
 ## Outcome

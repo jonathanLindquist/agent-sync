@@ -7,7 +7,7 @@
 
 ## Summary
 
-Decide how this CLI should be invoked day to day, such as a global npm link, npm script, or shell alias.
+Decide how this CLI should be invoked day to day, such as a global pnpm link, pnpm script, or shell alias.
 
 ## Context
 

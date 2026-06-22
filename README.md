@@ -48,8 +48,8 @@ Claude Code reads `CLAUDE.md`, not `AGENTS.md`, so its global instruction sync u
 ## Usage
 
 ```bash
-npm test
-npm run lint
+pnpm test
+pnpm lint
 node bin/agent-sync.js --help
 node bin/agent-sync.js --dry-run --claude-code
 node bin/agent-sync.js --dry-run --claude-code --skill tdd
@@ -61,6 +61,16 @@ node bin/agent-sync.js --all-providers
 Use `--skill <name>` to limit a sync to one skill directory name. The option can be repeated when you need a small explicit set, and it works with provider flags or `--all-providers`.
 
 Use `--artifact <id>` to opt into a non-default artifact group. Use `--all-artifacts` when you intentionally want every configured artifact group for the selected providers.
+
+## Tagging
+
+```bash
+node scripts/tag-and-push.js v0.1.0
+# or
+pnpm tag:push v0.1.0
+```
+
+The tag utility force-updates the local tag at `HEAD`, then force-pushes that tag to `origin`. If no tag is provided, it prints usage and takes no action.
 
 ## Configuration
 

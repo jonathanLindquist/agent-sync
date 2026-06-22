@@ -4,8 +4,8 @@ This file is the source of truth for repo-local agent guidance. Keep shared inst
 
 ## Project Commands
 
-- `npm run lint` checks JavaScript syntax for the CLI, source files, and tests.
-- `npm test` runs the Node test suite.
+- `pnpm lint` checks JavaScript syntax for the CLI, source files, and tests.
+- `pnpm test` runs the Node test suite.
 - `node bin/agent-sync.js --help` verifies CLI flag discovery from `agent-sync.json`.
 
 ## Agent skills

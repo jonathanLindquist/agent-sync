@@ -2,13 +2,15 @@
   "name": "agent-sync",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.23.0",
   "type": "module",
   "bin": {
     "agent-sync": "bin/agent-sync.js",
     "skill-organizer": "bin/skill-organizer.js"
   },
   "scripts": {
-    "lint": "node --check bin/agent-sync.js && node --check bin/skill-organizer.js && node --check src/cli.js && node --check src/providers.js && node --check src/sync.js && node --check test/sync.test.js",
+    "lint": "node --check bin/agent-sync.js && node --check bin/skill-organizer.js && node --check scripts/tag-and-push.js && node --check src/cli.js && node --check src/providers.js && node --check src/sync.js && node --check test/sync.test.js && node --check test/tag-and-push.test.js",
+    "tag:push": "node scripts/tag-and-push.js",
     "test": "node --test"
   },
   "engines": {
