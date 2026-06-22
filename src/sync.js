@@ -67,6 +67,20 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
     const sourcePath = path.join(sourceDir, destinationEntry.name);
     const destinationPath = path.join(destinationDir, destinationEntry.name);
 
+    if (destinationEntry.isSymbolicLink && (await isDanglingSymlink(destinationPath))) {
+      if (!dryRun) {
+        await removeEntry(destinationPath);
+      }
+
+      actions.push({
+        type: "removed",
+        skill: destinationEntry.name,
+        reason: "destination symlink target missing",
+        path: destinationPath,
+      });
+      continue;
+    }
+
     if (sourceAllNames.has(destinationEntry.name)) {
       if (!dryRun) {
         await removeEntry(destinationPath);
@@ -409,6 +423,25 @@ async function isSymlinkToSource(destinationPath, sourcePath) {
   } catch (error) {
     if (error.code === "ENOENT" || error.code === "EINVAL") {
       return false;
+    }
+
+    throw error;
+  }
+}
+
+async function isDanglingSymlink(inputPath) {
+  try {
+    const inputStat = await fs.lstat(inputPath);
+
+    if (!inputStat.isSymbolicLink()) {
+      return false;
+    }
+
+    await fs.stat(inputPath);
+    return false;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return true;
     }
 
     throw error;

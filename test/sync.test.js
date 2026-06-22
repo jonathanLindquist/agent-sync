@@ -640,6 +640,59 @@ test("imports the target directory for destination-only symlinked skills", async
   await assert.rejects(fs.stat(path.join(externalDir, "triage")), { code: "ENOENT" });
 });
 
+test("removes dangling destination-only symlinks instead of importing them", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "stale");
+
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(path.join(sourceDir, "stale"), destinationPath, "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions, [
+    {
+      type: "removed",
+      skill: "stale",
+      reason: "destination symlink target missing",
+      path: destinationPath,
+    },
+  ]);
+  await assert.rejects(fs.lstat(destinationPath), { code: "ENOENT" });
+  await assert.rejects(fs.lstat(path.join(sourceDir, "stale")), { code: "ENOENT" });
+});
+
+test("dry-run reports dangling destination-only symlink removal", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "stale");
+
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(path.join(sourceDir, "stale"), destinationPath, "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+    dryRun: true,
+  });
+
+  assert.deepEqual(result.actions, [
+    {
+      type: "removed",
+      skill: "stale",
+      reason: "destination symlink target missing",
+      path: destinationPath,
+    },
+  ]);
+  assert.equal((await fs.lstat(destinationPath)).isSymbolicLink(), true);
+  await assert.rejects(fs.lstat(path.join(sourceDir, "stale")), { code: "ENOENT" });
+});
+
 test("--all-providers imports once, then source truth replaces same-name provider-only clashes", async (t) => {
   const homeDir = await tempHome(t);
   const output = createWritable();
