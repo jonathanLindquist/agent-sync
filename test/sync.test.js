@@ -409,6 +409,60 @@ test("sync groups action details by type and skill name with spacing and bold la
   await assertCliActionOrder(t, ["--claude-code"], "Claude Code synced");
 });
 
+test("CLI warns about destination-only symlinks without changing them", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "triage");
+  const targetPath = path.join(homeDir, "external-skills", "triage");
+
+  await writeSkill(path.dirname(targetPath), "triage", "external target");
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(targetPath, destinationPath, "dir");
+
+  const exitCode = await runCli(["--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath: await writeProviderConfig(homeDir),
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 0 imported, 0 linked, 0 replaced, 0 removed, 0 skipped, 1 warning/);
+  assert.match(output.text, /\x1b\[1mwarning\x1b\[22m triage:/);
+  assert.match(output.text, /destination-only symlink left unchanged; handle manually/);
+  assert.equal(output.text.includes(destinationPath), true);
+  assert.equal(output.text.includes(targetPath), true);
+  assert.equal(await fs.readlink(destinationPath), targetPath);
+  assert.equal(await fs.readFile(path.join(targetPath, "SKILL.md"), "utf8"), "external target\n");
+});
+
+test("CLI reports removal of broken destination-only symlinks", async (t) => {
+  const homeDir = await tempHome(t);
+  const output = createWritable();
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "stale");
+  const targetPath = path.join(homeDir, "missing-skills", "stale");
+
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(targetPath, destinationPath, "dir");
+
+  const exitCode = await runCli(["--claude-code"], {
+    env: { HOME: homeDir },
+    providerConfigPath: await writeProviderConfig(homeDir),
+    stdout: output,
+    stderr: createWritable(),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.match(output.text, /Claude Code synced: 0 imported, 0 linked, 0 replaced, 1 removed, 0 skipped, 0 warnings/);
+  assert.match(output.text, /removed stale:/);
+  assert.match(output.text, /destination symlink target missing/);
+  assert.equal(output.text.includes(destinationPath), true);
+  assert.equal(output.text.includes(targetPath), true);
+  await assert.rejects(fs.lstat(destinationPath), { code: "ENOENT" });
+});
+
 test("links source skills that do not exist in the destination", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");
@@ -614,40 +668,46 @@ test("replaces an existing destination symlink that points away from the source"
   assert.equal(await fs.readFile(path.join(externalDir, "triage", "SKILL.md"), "utf8"), "external target\n");
 });
 
-test("imports the target directory for destination-only symlinked skills", async (t) => {
+test("warns and preserves destination-only symlinked skills", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");
   const destinationDir = path.join(workspace, ".claude", "skills");
   const externalDir = path.join(workspace, "external-skills");
+  const destinationPath = path.join(destinationDir, "triage");
+  const targetPath = path.join(externalDir, "triage");
 
   await writeSkill(externalDir, "triage", "external symlink target");
   await fs.mkdir(destinationDir, { recursive: true });
-  await fs.symlink(path.join(externalDir, "triage"), path.join(destinationDir, "triage"), "dir");
+  await fs.symlink(targetPath, destinationPath, "dir");
 
   const result = await syncProvider({
     sourceDir,
     provider: provider(destinationDir),
   });
 
-  assert.deepEqual(result.actions.map((action) => action.type), ["imported"]);
-
-  const sourceBody = await fs.readFile(path.join(sourceDir, "triage", "SKILL.md"), "utf8");
-  const destinationStat = await fs.lstat(path.join(destinationDir, "triage"));
-
-  assert.equal(sourceBody, "external symlink target\n");
-  assert.equal(destinationStat.isSymbolicLink(), true);
-  assert.equal(await fs.readlink(path.join(destinationDir, "triage")), path.join(sourceDir, "triage"));
-  await assert.rejects(fs.stat(path.join(externalDir, "triage")), { code: "ENOENT" });
+  assert.deepEqual(result.actions, [
+    {
+      type: "warning",
+      skill: "triage",
+      reason: "destination-only symlink left unchanged; handle manually",
+      path: destinationPath,
+      target: targetPath,
+    },
+  ]);
+  assert.equal(await fs.readlink(destinationPath), targetPath);
+  assert.equal(await fs.readFile(path.join(targetPath, "SKILL.md"), "utf8"), "external symlink target\n");
+  await assert.rejects(fs.stat(path.join(sourceDir, "triage")), { code: "ENOENT" });
 });
 
-test("removes dangling destination-only symlinks instead of importing them", async (t) => {
+test("removes dangling destination-only symlinks", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");
   const destinationDir = path.join(workspace, ".claude", "skills");
   const destinationPath = path.join(destinationDir, "stale");
+  const targetPath = path.join(sourceDir, "stale");
 
   await fs.mkdir(destinationDir, { recursive: true });
-  await fs.symlink(path.join(sourceDir, "stale"), destinationPath, "dir");
+  await fs.symlink(targetPath, destinationPath, "dir");
 
   const result = await syncProvider({
     sourceDir,
@@ -660,20 +720,22 @@ test("removes dangling destination-only symlinks instead of importing them", asy
       skill: "stale",
       reason: "destination symlink target missing",
       path: destinationPath,
+      target: targetPath,
     },
   ]);
   await assert.rejects(fs.lstat(destinationPath), { code: "ENOENT" });
-  await assert.rejects(fs.lstat(path.join(sourceDir, "stale")), { code: "ENOENT" });
+  await assert.rejects(fs.stat(targetPath), { code: "ENOENT" });
 });
 
-test("dry-run reports dangling destination-only symlink removal", async (t) => {
+test("dry-run reports dangling destination-only symlink removal without changing it", async (t) => {
   const workspace = await tempHome(t);
   const sourceDir = path.join(workspace, ".agents", "skills");
   const destinationDir = path.join(workspace, ".claude", "skills");
   const destinationPath = path.join(destinationDir, "stale");
+  const targetPath = path.join(sourceDir, "stale");
 
   await fs.mkdir(destinationDir, { recursive: true });
-  await fs.symlink(path.join(sourceDir, "stale"), destinationPath, "dir");
+  await fs.symlink(targetPath, destinationPath, "dir");
 
   const result = await syncProvider({
     sourceDir,
@@ -687,10 +749,126 @@ test("dry-run reports dangling destination-only symlink removal", async (t) => {
       skill: "stale",
       reason: "destination symlink target missing",
       path: destinationPath,
+      target: targetPath,
+    },
+  ]);
+  assert.equal(await fs.readlink(destinationPath), targetPath);
+  await assert.rejects(fs.stat(targetPath), { code: "ENOENT" });
+});
+
+test("removes cyclic destination-only symlinks", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "cycle");
+
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(destinationPath, destinationPath, "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions, [
+    {
+      type: "removed",
+      skill: "cycle",
+      reason: "destination symlink target cannot be resolved (ELOOP)",
+      path: destinationPath,
+      target: destinationPath,
+    },
+  ]);
+  await assert.rejects(fs.lstat(destinationPath), { code: "ENOENT" });
+});
+
+test("removes destination-only symlinks with non-directory target paths", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const targetParentPath = path.join(workspace, "external-file");
+  const targetPath = path.join(targetParentPath, "triage");
+  const destinationPath = path.join(destinationDir, "triage");
+
+  await fs.writeFile(targetParentPath, "not a directory\n");
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(targetPath, destinationPath, "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions, [
+    {
+      type: "removed",
+      skill: "triage",
+      reason: "destination symlink target cannot be resolved (ENOTDIR)",
+      path: destinationPath,
+      target: targetPath,
+    },
+  ]);
+  await assert.rejects(fs.lstat(destinationPath), { code: "ENOENT" });
+  assert.equal(await fs.readFile(targetParentPath, "utf8"), "not a directory\n");
+});
+
+test("warns and preserves destination-only symlinks when resolution is inaccessible", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const targetPath = path.join(workspace, "external-skills", "triage");
+  const destinationPath = path.join(destinationDir, "triage");
+
+  await writeSkill(path.dirname(targetPath), "triage", "external target");
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(targetPath, destinationPath, "dir");
+
+  t.mock.method(fs, "stat", async () => {
+    throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+  });
+  t.mock.method(fs, "readlink", async () => {
+    throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+  });
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions, [
+    {
+      type: "warning",
+      skill: "triage",
+      reason: "destination-only symlink could not be resolved (EACCES); left unchanged; handle manually",
+      path: destinationPath,
     },
   ]);
   assert.equal((await fs.lstat(destinationPath)).isSymbolicLink(), true);
-  await assert.rejects(fs.lstat(path.join(sourceDir, "stale")), { code: "ENOENT" });
+  assert.equal(await fs.readFile(path.join(targetPath, "SKILL.md"), "utf8"), "external target\n");
+});
+
+test("warns instead of removing a destination symlink that clashes with a source file", async (t) => {
+  const workspace = await tempHome(t);
+  const sourceDir = path.join(workspace, ".agents", "skills");
+  const destinationDir = path.join(workspace, ".claude", "skills");
+  const destinationPath = path.join(destinationDir, "triage");
+  const targetPath = path.join(workspace, "external-skills", "triage");
+
+  await fs.mkdir(sourceDir, { recursive: true });
+  await fs.writeFile(path.join(sourceDir, "triage"), "source file\n");
+  await writeSkill(path.dirname(targetPath), "triage", "external target");
+  await fs.mkdir(destinationDir, { recursive: true });
+  await fs.symlink(targetPath, destinationPath, "dir");
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.type), ["warning"]);
+  assert.equal(await fs.readFile(path.join(sourceDir, "triage"), "utf8"), "source file\n");
+  assert.equal(await fs.readlink(destinationPath), targetPath);
+  assert.equal(await fs.readFile(path.join(targetPath, "SKILL.md"), "utf8"), "external target\n");
 });
 
 test("--all-providers imports once, then source truth replaces same-name provider-only clashes", async (t) => {

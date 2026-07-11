@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+const BROKEN_SYMLINK_ERROR_CODES = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
+
 export async function syncArtifacts({ artifacts, dryRun = false, skillNames = [] }) {
   const results = [];
 
@@ -67,16 +69,20 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
     const sourcePath = path.join(sourceDir, destinationEntry.name);
     const destinationPath = path.join(destinationDir, destinationEntry.name);
 
-    if (destinationEntry.isSymbolicLink && (await isDanglingSymlink(destinationPath))) {
-      if (!dryRun) {
-        await removeEntry(destinationPath);
+    if (destinationEntry.isSymbolicLink) {
+      const resolution = await destinationSymlinkResolution(destinationPath);
+      const target = await trySymlinkTargetPath(destinationPath);
+
+      if (resolution.type === "removed" && !dryRun) {
+        await fs.unlink(destinationPath);
       }
 
       actions.push({
-        type: "removed",
+        type: resolution.type,
         skill: destinationEntry.name,
-        reason: "destination symlink target missing",
+        reason: resolution.reason,
         path: destinationPath,
+        ...(target ? { target } : {}),
       });
       continue;
     }
@@ -96,7 +102,7 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
     }
 
     if (!dryRun) {
-      await moveSkillToSource(destinationEntry, destinationPath, sourcePath);
+      await moveEntry(destinationPath, sourcePath);
       await linkSkill(sourcePath, destinationPath);
     }
 
@@ -325,25 +331,6 @@ async function linkSourcePathForSkill(entry, sourcePath) {
   return targetPath;
 }
 
-async function moveSkillToSource(entry, destinationPath, sourcePath) {
-  if (!entry.isSymbolicLink) {
-    await moveEntry(destinationPath, sourcePath);
-    return;
-  }
-
-  const targetPath = await fs.realpath(destinationPath);
-  const targetStat = await fs.stat(targetPath);
-
-  if (!targetStat.isDirectory()) {
-    throw new Error(`Destination symlink does not point to a skill directory: ${destinationPath}`);
-  }
-
-  await moveEntry(targetPath, sourcePath);
-  await fs.rm(destinationPath, {
-    force: true,
-  });
-}
-
 async function moveFileToSource(destinationPath, sourcePath) {
   const destinationStat = await fs.lstat(destinationPath);
 
@@ -429,22 +416,38 @@ async function isSymlinkToSource(destinationPath, sourcePath) {
   }
 }
 
-async function isDanglingSymlink(inputPath) {
+async function destinationSymlinkResolution(inputPath) {
   try {
-    const inputStat = await fs.lstat(inputPath);
-
-    if (!inputStat.isSymbolicLink()) {
-      return false;
-    }
-
     await fs.stat(inputPath);
-    return false;
+    return {
+      type: "warning",
+      reason: "destination-only symlink left unchanged; handle manually",
+    };
   } catch (error) {
-    if (error.code === "ENOENT") {
-      return true;
+    const errorCode = error.code || "unknown error";
+
+    if (BROKEN_SYMLINK_ERROR_CODES.has(errorCode)) {
+      return {
+        type: "removed",
+        reason: errorCode === "ENOENT"
+          ? "destination symlink target missing"
+          : `destination symlink target cannot be resolved (${errorCode})`,
+      };
     }
 
-    throw error;
+    return {
+      type: "warning",
+      reason: `destination-only symlink could not be resolved (${errorCode}); left unchanged; handle manually`,
+    };
+  }
+}
+
+async function trySymlinkTargetPath(inputPath) {
+  try {
+    const linkTarget = await fs.readlink(inputPath);
+    return path.resolve(path.dirname(inputPath), linkTarget);
+  } catch {
+    return null;
   }
 }
 

@@ -5,8 +5,8 @@ const ALL_PROVIDERS_FLAG = "--all-providers";
 const ALL_ARTIFACTS_FLAG = "--all-artifacts";
 const ARTIFACT_FLAG = "--artifact";
 const SKILL_FLAG = "--skill";
-const ACTION_DISPLAY_ORDER = ["imported", "linked", "replaced", "removed", "skipped"];
-const BOLD_ACTION_TYPES = new Set(["imported", "linked", "replaced"]);
+const ACTION_DISPLAY_ORDER = ["warning", "imported", "linked", "replaced", "removed", "skipped"];
+const BOLD_ACTION_TYPES = new Set(["warning", "imported", "linked", "replaced"]);
 
 export async function runCli(
   argv,
@@ -206,9 +206,10 @@ function writeProviderSummary(stdout, result) {
   const subject = result.artifact && result.artifact.type !== "skills"
     ? `${result.provider.label} ${result.artifact.label}`
     : result.provider.label;
+  const warningCount = `${counts.warnings} warning${counts.warnings === 1 ? "" : "s"}`;
 
   stdout.write(
-    `${subject} ${mode}: ${counts.imported} imported, ${counts.linked} linked, ${counts.replaced} replaced, ${counts.removed} removed, ${counts.skipped} skipped.\n`,
+    `${subject} ${mode}: ${counts.imported} imported, ${counts.linked} linked, ${counts.replaced} replaced, ${counts.removed} removed, ${counts.skipped} skipped, ${warningCount}.\n`,
   );
 
   let previousActionType;
@@ -219,6 +220,14 @@ function writeProviderSummary(stdout, result) {
     }
 
     previousActionType = action.type;
+
+    if (action.type === "warning") {
+      const target = action.target ? ` -> ${action.target}` : "";
+      stdout.write(
+        `  ${formatActionType(action.type)} ${actionName(action)}: ${action.path}${target} (${action.reason})\n`,
+      );
+      continue;
+    }
 
     if (action.type === "imported") {
       stdout.write(`  ${formatActionType(action.type)} ${actionName(action)}: ${action.from} -> ${action.to}\n`);
@@ -236,7 +245,8 @@ function writeProviderSummary(stdout, result) {
     }
 
     if (action.type === "removed") {
-      stdout.write(`  removed ${actionName(action)}: ${action.path} (${action.reason})\n`);
+      const target = action.target ? ` -> ${action.target}` : "";
+      stdout.write(`  removed ${actionName(action)}: ${action.path}${target} (${action.reason})\n`);
       continue;
     }
 
@@ -278,6 +288,7 @@ function actionDisplayRank(type) {
 
 function countActions(actions) {
   return {
+    warnings: actions.filter((action) => action.type === "warning").length,
     imported: actions.filter((action) => action.type === "imported").length,
     linked: actions.filter((action) => action.type === "linked").length,
     replaced: actions.filter((action) => action.type === "replaced").length,

@@ -17,8 +17,10 @@ By default, selected provider flags sync only the default `skills` artifact:
 - source skills in `~/.agents/skills` are symlinked into the provider destination
 - source skills that are symlinks are linked into providers using the symlink target, which keeps skill repo links direct
 - existing destination entries with matching source skill names are replaced with symlinks to the source skill
-- destination-only skills are moved into `~/.agents/skills`, then symlinked back to the original provider location
-- destination-only skills that clash with non-skill source entries are removed from the provider destination
+- destination-only skill directories are moved into `~/.agents/skills`, then symlinked back to the original provider location
+- destination-only symlinks whose targets resolve are left untouched and reported as warnings for the user to handle manually
+- destination-only symlinks proven broken by `ENOENT`, `ENOTDIR`, or `ELOOP` are removed; other resolution failures are preserved and warned
+- destination-only skill directories that clash with non-skill source entries are removed from the provider destination
 - the entire provider `skills` directory is never symlinked or replaced
 
 Claude Code is the first supported provider:
