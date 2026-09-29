@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This file is the source of truth for repo-local agent guidance. Keep shared instructions here; `CLAUDE.md` is only a thin wrapper that points Claude Code back to this file.
+This file is the source of truth for repo-local agent guidance. Claude Code reads it at launch only while the repo has no `CLAUDE.md`, so keep Claude-specific guidance here as well.
 
 ## Project Commands
 
