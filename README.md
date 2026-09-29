@@ -47,6 +47,12 @@ Non-default artifacts must be selected explicitly. The first non-skill artifact 
 
 Claude Code reads `CLAUDE.md`, not `AGENTS.md`, so its global instruction sync uses a thin import wrapper instead of naming the provider file `AGENTS.md`.
 
+File artifacts follow the same source-of-truth rules as skills, with one guard:
+
+- a destination-only file from a `symlink` provider is moved to the source path, then symlinked back
+- a destination-only file from a `template` provider is left untouched and reported as a warning, because a wrapper holds a pointer and importing it would replace the shared instructions with that pointer
+- once the source exists, provider order has no effect on the result
+
 ## Usage
 
 ```bash

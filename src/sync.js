@@ -200,6 +200,17 @@ export async function syncFileProvider({ artifact, provider, dryRun = false }) {
     return fileResult({ artifact, provider, sourcePath, destinationPath, dryRun, actions });
   }
 
+  if (!sourceExists && destinationExists && provider.mode === "template") {
+    actions.push({
+      type: "warning",
+      item,
+      path: destinationPath,
+      reason: "source missing and a template destination cannot be imported; left unchanged; create the source or sync a symlink provider first",
+    });
+
+    return fileResult({ artifact, provider, sourcePath, destinationPath, dryRun, actions });
+  }
+
   if (!sourceExists && destinationExists) {
     if (!dryRun) {
       await ensureDirectory(path.dirname(sourcePath), { dryRun });

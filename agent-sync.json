@@ -29,6 +29,13 @@
           "mode": "symlink"
         },
         {
+          "id": "t3-cliproxy",
+          "flag": "--t3-cliproxy",
+          "label": "T3 Code proxy",
+          "destinationFile": "~/.t3-cliproxy/AGENTS.md",
+          "mode": "symlink"
+        },
+        {
           "id": "claude-code",
           "flag": "--claude-code",
           "label": "Claude Code",

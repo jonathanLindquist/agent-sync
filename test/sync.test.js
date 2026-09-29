@@ -986,6 +986,74 @@ test("replaces file artifact clashes with provider templates", async (t) => {
   assert.equal(await fs.readFile(destinationPath, "utf8"), "@~/.agents/AGENTS.md\n");
 });
 
+test("warns instead of importing a template destination when the source is missing", async (t) => {
+  const workspace = await tempHome(t);
+  const sourcePath = path.join(workspace, ".agents", "AGENTS.md");
+  const destinationPath = path.join(workspace, ".claude", "CLAUDE.md");
+
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fs.writeFile(destinationPath, "@~/.codex/AGENTS.md\n");
+
+  const result = await syncFileProvider({
+    artifact: fileArtifact(sourcePath),
+    provider: fileProvider(destinationPath, {
+      mode: "template",
+      template: "@~/.agents/AGENTS.md\n",
+    }),
+  });
+
+  assert.deepEqual(result.actions.map((action) => action.type), ["warning"]);
+  assert.equal(result.actions[0].path, destinationPath);
+  assert.match(result.actions[0].reason, /source missing/);
+  assert.equal(await fs.readFile(destinationPath, "utf8"), "@~/.codex/AGENTS.md\n");
+  await assert.rejects(fs.stat(sourcePath), { code: "ENOENT" });
+});
+
+test("global instructions survive syncing the template provider before the symlink provider", async (t) => {
+  const homeDir = await tempHome(t);
+  const providerConfigPath = await writeAgentSyncConfig(homeDir);
+  const sourcePath = path.join(homeDir, ".agents", "AGENTS.md");
+  const codexPath = path.join(homeDir, ".codex", "AGENTS.md");
+  const claudePath = path.join(homeDir, ".claude", "CLAUDE.md");
+  const runGlobalInstructions = async (providerFlag) => {
+    const output = createWritable();
+    const exitCode = await runCli(["--artifact", "global-instructions", providerFlag], {
+      env: { HOME: homeDir },
+      providerConfigPath,
+      stdout: output,
+      stderr: createWritable(),
+    });
+
+    assert.equal(exitCode, 0);
+
+    return output.text;
+  };
+
+  await fs.mkdir(path.dirname(codexPath), { recursive: true });
+  await fs.mkdir(path.dirname(claudePath), { recursive: true });
+  await fs.writeFile(codexPath, "shared global instructions\n");
+  await fs.writeFile(claudePath, "@~/.codex/AGENTS.md\n");
+
+  const claudeFirstOutput = await runGlobalInstructions("--claude-code");
+
+  assert.match(claudeFirstOutput, /Claude Code global instructions synced: 0 imported, 0 linked, 0 replaced, 0 removed, 0 skipped, 1 warning\./);
+  assert.match(claudeFirstOutput, /\x1b\[1mwarning\x1b\[22m global-instructions:/);
+  assert.equal(claudeFirstOutput.includes(claudePath), true);
+  await assert.rejects(fs.stat(sourcePath), { code: "ENOENT" });
+
+  const codexOutput = await runGlobalInstructions("--codex");
+
+  assert.match(codexOutput, /Codex global instructions synced: 1 imported/);
+  assert.equal(await fs.readFile(sourcePath, "utf8"), "shared global instructions\n");
+  assert.equal(await fs.readlink(codexPath), sourcePath);
+
+  const claudeSecondOutput = await runGlobalInstructions("--claude-code");
+
+  assert.match(claudeSecondOutput, /Claude Code global instructions synced: 0 imported, 0 linked, 1 replaced/);
+  assert.equal(await fs.readFile(claudePath, "utf8"), "@~/.agents/AGENTS.md\n");
+  assert.equal(await fs.readFile(sourcePath, "utf8"), "shared global instructions\n");
+});
+
 async function tempHome(t) {
   await fs.mkdir(TEST_TMP_ROOT, { recursive: true });
 
