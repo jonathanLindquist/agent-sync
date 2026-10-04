@@ -22,6 +22,11 @@ By default, selected provider flags sync only the default `skills` artifact:
 - destination-only symlinks proven broken by `ENOENT`, `ENOTDIR`, or `ELOOP` are removed; other resolution failures are preserved and warned
 - destination-only skill directories that clash with non-skill source entries are removed from the provider destination
 - the entire provider `skills` directory is never symlinked or replaced
+- the reserved `synced` collection (in any capitalization) is ignored in both source and provider directories
+
+Claude Code owns `~/.claude/skills/synced/` and updates it from the account automatically. This managed collection is excluded from imports, exports, replacement, and broken-link cleanup. Manually installed skills still follow the rules above, including skills named `pdf` or `docx`. See [Claude Code's synced skill documentation](https://code.claude.com/docs/en/skills#where-synced-skills-load).
+
+An existing `~/.agents/skills/synced` directory or provider link is preserved. This exclusion prevents further bridging; it does not relocate collections that were previously imported. Restoring an existing managed collection to its provider requires a separate migration that preserves its contents and metadata.
 
 Claude Code is the first supported provider:
 

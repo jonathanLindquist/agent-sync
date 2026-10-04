@@ -1054,6 +1054,122 @@ test("global instructions survive syncing the template provider before the symli
   assert.equal(await fs.readFile(sourcePath, "utf8"), "shared global instructions\n");
 });
 
+test("provider-managed synced collections stay outside shared sync", async (t) => {
+  const cases = [
+    { name: "provider-owned directory", source: null, destination: "directory" },
+    { name: "previously imported directory", source: "directory", destination: null },
+    { name: "independent collections", source: "directory", destination: "directory" },
+    { name: "source file collision", source: "file", destination: "directory" },
+    { name: "existing provider link", source: "directory", destination: "source-link" },
+    { name: "broken provider link", source: null, destination: "broken-link" },
+    { name: "source collection link", source: "external-link", destination: null },
+    { name: "reserved name in mixed case", source: null, destination: "directory", skillName: "SyNcEd" },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async (t) => {
+      const homeDir = await tempHome(t);
+      const sourceDir = path.join(homeDir, ".agents", "skills");
+      const destinationDir = path.join(homeDir, ".claude", "skills");
+      const otherProviderDir = path.join(homeDir, ".custom-agent", "skills");
+      const skillName = scenario.skillName ?? "synced";
+      const sourcePath = path.join(sourceDir, skillName);
+      const destinationPath = path.join(destinationDir, skillName);
+      const otherPath = path.join(otherProviderDir, skillName);
+      const externalPath = path.join(homeDir, "managed-downloads");
+
+      for (const directory of [sourceDir, destinationDir, otherProviderDir]) {
+        await fs.mkdir(directory, { recursive: true });
+      }
+      if (scenario.source === "directory") await writeManagedCollection(sourcePath, "shared snapshot");
+      if (scenario.source === "file") await fs.writeFile(sourcePath, "keep source file");
+      if (scenario.source === "external-link") {
+        await writeManagedCollection(externalPath, "managed target");
+        await fs.symlink(externalPath, sourcePath);
+      }
+      if (scenario.destination === "directory") await writeManagedCollection(destinationPath, "provider snapshot");
+      if (scenario.destination === "source-link") await fs.symlink(sourcePath, destinationPath);
+      if (scenario.destination === "broken-link") await fs.symlink(path.join(homeDir, "missing"), destinationPath);
+
+      const protectedPaths = [sourcePath, destinationPath, otherPath, externalPath];
+      const before = await Promise.all(protectedPaths.map(snapshotEntry));
+      // Publisher and skill names do not determine ownership: a manually installed pdf still syncs.
+      await writeSkill(destinationDir, "pdf", "manually installed skill");
+      const skillsRepository = path.join(homeDir, "projects", "jonathanLindquist-skills");
+      await writeSkill(skillsRepository, "tdd", "repository skill");
+      const repositorySkill = path.join(skillsRepository, "tdd");
+      await fs.symlink(repositorySkill, path.join(sourceDir, "tdd"));
+      const providerConfigPath = await writeProviderConfig(homeDir, twoProviders());
+
+      for (const selected of [false, true]) {
+        const output = createWritable();
+        const argv = selected
+          ? ["--all-providers", "--skill", skillName, "--skill", "pdf"]
+          : ["--all-providers"];
+        assert.equal(await runCli(argv, {
+          env: { HOME: homeDir },
+          providerConfigPath,
+          stdout: output,
+          stderr: createWritable(),
+        }), 0);
+
+        assert.deepEqual(await Promise.all(protectedPaths.map(snapshotEntry)), before);
+        assert.doesNotMatch(output.text, /(?:imported|linked|replaced|removed|skipped|warning) synced:/i);
+        assert.doesNotMatch(output.text, /skill not found in source or destination/);
+        assert.equal(await fs.readFile(path.join(sourceDir, "pdf", "SKILL.md"), "utf8"), "manually installed skill\n");
+        assert.equal(await fs.readlink(path.join(destinationDir, "pdf")), path.join(sourceDir, "pdf"));
+        assert.equal(await fs.readlink(path.join(otherProviderDir, "pdf")), path.join(sourceDir, "pdf"));
+        for (const directory of [sourceDir, destinationDir, otherProviderDir]) {
+          assert.equal(await fs.readlink(path.join(directory, "tdd")), repositorySkill);
+          assert.equal(await fs.readFile(path.join(directory, "tdd", "SKILL.md"), "utf8"), "repository skill\n");
+        }
+      }
+    });
+  }
+});
+
+test("dry runs skip managed collections and still preview manual skills", async (t) => {
+  const homeDir = await tempHome(t);
+  const sourceDir = path.join(homeDir, ".agents", "skills");
+  const destinationDir = path.join(homeDir, ".claude", "skills");
+  await writeManagedCollection(path.join(sourceDir, "synced"), "shared snapshot");
+  await writeManagedCollection(path.join(destinationDir, "synced"), "provider snapshot");
+  await writeSkill(destinationDir, "manual", "manual skill");
+  const before = await Promise.all([sourceDir, destinationDir].map(snapshotEntry));
+
+  const result = await syncProvider({
+    sourceDir,
+    provider: provider(destinationDir),
+    dryRun: true,
+  });
+
+  assert.deepEqual(result.actions.filter((action) => action.skill === "synced"), []);
+  assert.equal(result.actions.some((action) => action.skill === "manual" && action.type === "imported"), true);
+  assert.deepEqual(await Promise.all([sourceDir, destinationDir].map(snapshotEntry)), before);
+});
+
+async function writeManagedCollection(directoryPath, body) {
+  await writeSkill(directoryPath, "account/pdf", body);
+  await writeSkill(directoryPath, "account/.staging/docx", "pending download");
+  await fs.writeFile(path.join(directoryPath, "account", "manifest.json"), JSON.stringify({ source: "managed", body }));
+}
+
+async function snapshotEntry(entryPath) {
+  let stat;
+  try {
+    stat = await fs.lstat(entryPath);
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) return { link: await fs.readlink(entryPath) };
+  if (!stat.isDirectory()) return { content: await fs.readFile(entryPath, "utf8") };
+  const names = (await fs.readdir(entryPath)).sort();
+  return Object.fromEntries(await Promise.all(names.map(async (name) => [
+    name, await snapshotEntry(path.join(entryPath, name)),
+  ])));
+}
+
 async function tempHome(t) {
   await fs.mkdir(TEST_TMP_ROOT, { recursive: true });
 

@@ -163,6 +163,7 @@ export async function syncProvider({ sourceDir, provider, dryRun = false, skillN
   }
 
   for (const skillName of selectedSkillNames) {
+    if (isProviderManagedSkillName(skillName)) continue;
     if (!allSourceSkillNames.has(skillName) && !allDestinationSkillNames.has(skillName)) {
       actions.push({
         type: "skipped",
@@ -280,11 +281,13 @@ function fileResult({ artifact, provider, sourcePath, destinationPath, dryRun, a
 }
 
 function filterSkillEntries(entries, selectedSkillNameSet) {
-  if (!selectedSkillNameSet) {
-    return entries;
-  }
+  return entries.filter((entry) => !isProviderManagedSkillName(entry.name)
+    && (!selectedSkillNameSet || selectedSkillNameSet.has(entry.name)));
+}
 
-  return entries.filter((entry) => selectedSkillNameSet.has(entry.name));
+function isProviderManagedSkillName(name) {
+  // Claude Code reserves this collection for account downloads and manages its contents.
+  return name.toLowerCase() === "synced";
 }
 
 async function ensureDirectory(directoryPath, { dryRun }) {
